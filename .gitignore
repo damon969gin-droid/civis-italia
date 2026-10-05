@@ -1,0 +1,41 @@
+# Flutter
+apps/mobile/.dart_tool/
+apps/mobile/.packages
+apps/mobile/.pub-cache/
+apps/mobile/.pub/
+apps/mobile/build/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+**/*.iml
+**/.idea/
+**/.vscode/
+
+# NestJS / Node
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/.env.*
+backend/coverage/
+
+# Shared
+packages/**/node_modules/
+packages/**/dist/
+
+# General
+.DS_Store
+*.log
+*.swp
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# OS
+Thumbs.db
