@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Android adaptive: sfondo #1F4FD8 a parte, contenuto nella zona sicura -->
+  <g transform="translate(512 330) scale(0.46) translate(-512 -512)">
+    <g fill="none" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M180 270 V220 a60 60 0 0 1 60 -60 H290"/>
+      <path d="M734 160 H784 a60 60 0 0 1 60 60 V270"/>
+      <path d="M844 754 V804 a60 60 0 0 1 -60 60 H734"/>
+      <path d="M290 864 H240 a60 60 0 0 1 -60 -60 V754"/>
+    </g>
+    <path d="M336 212 H610 L732 334 V728 a44 44 0 0 1 -44 44 H336 a44 44 0 0 1 -44 -44 V256 a44 44 0 0 1 44 -44 Z" fill="#FFFFFF"/>
+    <path d="M610 212 V290 a44 44 0 0 0 44 44 H732 Z" fill="#C9D6F6"/>
+    <rect x="352" y="400" width="300" height="28" rx="14" fill="#BFCBEA"/>
+    <rect x="352" y="462" width="236" height="28" rx="14" fill="#BFCBEA"/>
+    <rect x="352" y="524" width="270" height="28" rx="14" fill="#BFCBEA"/>
+    <circle cx="672" cy="700" r="112" fill="#1F4FD8"/>
+    <circle cx="672" cy="700" r="96" fill="#14A37F"/>
+    <path d="M626 702 L661 737 L722 664" fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="512" y="730" text-anchor="middle" font-family="Liberation Serif, 'Times New Roman', Times, Georgia, serif" font-weight="700" font-size="150" letter-spacing="6" fill="#FFFFFF">CIVIS</text>
+  <text x="512" y="820" text-anchor="middle" font-family="Liberation Serif, 'Times New Roman', Times, Georgia, serif" font-weight="700" font-size="64" letter-spacing="26" fill="#FFFFFF">ITA</text>
+</svg>

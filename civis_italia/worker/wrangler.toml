@@ -1,0 +1,19 @@
+name = "civis-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Modello usato per leggere e spiegare i documenti.
+ANTHROPIC_MODEL = "claude-sonnet-5-5"
+# Documenti analizzabili al mese per utente (finché non c'è l'abbonamento).
+FREE_DOCS_PER_MONTH = "30"
+
+# Database (D1): già creato nel tuo account Cloudflare, con le tabelle di schema.sql.
+[[d1_databases]]
+binding = "DB"
+database_name = "civis"
+database_id = "7bf35e96-6664-4d8a-a010-587322daec98"
+
+# Segreti (NON metterli in questo file). Si impostano da terminale:
+#   npx wrangler secret put JWT_SECRET
+#   npx wrangler secret put ANTHROPIC_API_KEY
