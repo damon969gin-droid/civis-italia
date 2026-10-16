@@ -6,7 +6,7 @@
 class AppConfig {
   static const apiUrl = String.fromEnvironment(
     'API_URL',
-    defaultValue: 'INCOLLA_QUI_L_INDIRIZZO_DEL_SERVER',
+    defaultValue: 'https://civis-api.damon969gin.workers.dev',
   );
 
   static bool get isConfigured => apiUrl.startsWith('https://') || apiUrl.startsWith('http://');
