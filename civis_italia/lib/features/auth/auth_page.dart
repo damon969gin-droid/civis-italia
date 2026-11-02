@@ -17,7 +17,9 @@ class _AuthPageState extends State<AuthPage> {
   final _name = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _code = TextEditingController();
   bool _register = false;
+  bool _reset = false;
   bool _consent = false;
   bool _hide = true;
   bool _busy = false;
@@ -28,6 +30,7 @@ class _AuthPageState extends State<AuthPage> {
     _name.dispose();
     _email.dispose();
     _password.dispose();
+    _code.dispose();
     super.dispose();
   }
 
@@ -44,7 +47,9 @@ class _AuthPageState extends State<AuthPage> {
     });
     try {
       final email = _email.text.trim();
-      if (_register) {
+      if (_reset) {
+        await session.resetPassword(email, _code.text.trim(), _password.text);
+      } else if (_register) {
         await session.register(email, _password.text, _name.text.trim());
       } else {
         await session.login(email, _password.text);
@@ -82,7 +87,7 @@ class _AuthPageState extends State<AuthPage> {
                     ),
                     const SizedBox(height: 20),
                     Text(
-                      _register ? 'Crea il tuo account' : 'Bentornato',
+                      _reset ? 'Reimposta la password' : (_register ? 'Crea il tuo account' : 'Bentornato'),
                       style: t.textTheme.headlineMedium,
                       textAlign: TextAlign.center,
                     ),
@@ -93,7 +98,18 @@ class _AuthPageState extends State<AuthPage> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 24),
-                    if (notice != null && !_register) ...[
+                    if (_reset) ...[
+                      const NoticeBox(
+                        icon: Icons.key_outlined,
+                        title: 'Usa il codice di recupero',
+                        lines: [
+                          'È il codice di 20 caratteri che ti abbiamo mostrato quando hai creato l\'account.',
+                          'Se l\'hai perso, non c\'è modo di recuperare l\'account: puoi crearne uno nuovo.',
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    if (notice != null && !_register && !_reset) ...[
                       NoticeBox(icon: Icons.info_outline, title: notice),
                       const SizedBox(height: 16),
                     ],
@@ -116,14 +132,24 @@ class _AuthPageState extends State<AuthPage> {
                         return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$').hasMatch(s) ? null : 'Scrivi un\'email valida';
                       },
                     ),
+                    if (_reset) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _code,
+                        textCapitalization: TextCapitalization.characters,
+                        autocorrect: false,
+                        decoration: const InputDecoration(labelText: 'Codice di recupero', hintText: 'XXXXX-XXXXX-XXXXX-XXXXX'),
+                        validator: (v) => (v ?? '').trim().length >= 20 ? null : 'Scrivi il codice di recupero',
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _password,
                       obscureText: _hide,
-                      autofillHints: [_register ? AutofillHints.newPassword : AutofillHints.password],
+                      autofillHints: [_register || _reset ? AutofillHints.newPassword : AutofillHints.password],
                       decoration: InputDecoration(
-                        labelText: 'Password',
-                        helperText: _register ? 'Almeno 8 caratteri' : null,
+                        labelText: _reset ? 'Nuova password' : 'Password',
+                        helperText: _register || _reset ? 'Almeno 8 caratteri' : null,
                         suffixIcon: IconButton(
                           onPressed: () => setState(() => _hide = !_hide),
                           icon: Icon(_hide ? Icons.visibility_outlined : Icons.visibility_off_outlined),
@@ -161,17 +187,33 @@ class _AuthPageState extends State<AuthPage> {
                       onPressed: _busy ? null : _submit,
                       child: _busy
                           ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
-                          : Text(_register ? 'Crea account' : 'Accedi'),
+                          : Text(_reset ? 'Reimposta e accedi' : (_register ? 'Crea account' : 'Accedi')),
                     ),
                     const SizedBox(height: 8),
+                    if (!_register && !_reset)
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                  _reset = true;
+                                  _error = null;
+                                }),
+                        child: const Text('Password dimenticata?'),
+                      ),
                     TextButton(
                       onPressed: _busy
                           ? null
                           : () => setState(() {
-                                _register = !_register;
+                                if (_reset) {
+                                  _reset = false;
+                                } else {
+                                  _register = !_register;
+                                }
                                 _error = null;
                               }),
-                      child: Text(_register ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati'),
+                      child: Text(_reset
+                          ? 'Torna all\'accesso'
+                          : (_register ? 'Hai già un account? Accedi' : 'Non hai un account? Registrati')),
                     ),
                   ],
                 ),

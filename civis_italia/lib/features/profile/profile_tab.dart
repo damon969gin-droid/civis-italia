@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api.dart';
 import '../../core/app_data.dart';
 import '../../core/widgets.dart';
+import '../auth/recovery_dialog.dart';
 
 class ProfileTab extends StatelessWidget {
   const ProfileTab({super.key});
@@ -48,6 +49,23 @@ class ProfileTab extends StatelessWidget {
     final scope = AppScope.of(context);
     scope.data.clear();
     await scope.session.logout();
+  }
+
+  Future<void> _newRecoveryCode(BuildContext context) async {
+    final scope = AppScope.of(context);
+    final ok = await confirmDialog(
+      context,
+      title: 'Generare un nuovo codice di recupero?',
+      text: 'Il codice che hai ora smette di funzionare. Il nuovo lo vedrai una sola volta.',
+      confirmLabel: 'Genera',
+    );
+    if (!ok) return;
+    try {
+      final code = await scope.api.renewRecoveryCode();
+      if (context.mounted) await showRecoveryCodeDialog(context, code);
+    } on ApiException catch (e) {
+      if (context.mounted) showSnack(context, e.message);
+    }
   }
 
   Future<void> _delete(BuildContext context) async {
@@ -113,6 +131,13 @@ class ProfileTab extends StatelessWidget {
                 onTap: () => _delete(context),
               ),
               const SectionTitle('Account'),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.key_outlined),
+                title: const Text('Codice di recupero password'),
+                subtitle: const Text('Serve se dimentichi la password. Generane uno nuovo quando vuoi.'),
+                onTap: () => _newRecoveryCode(context),
+              ),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.logout),

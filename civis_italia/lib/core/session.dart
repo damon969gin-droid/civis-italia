@@ -19,6 +19,9 @@ class Session extends ChangeNotifier {
   bool loaded = false;
   Map<String, dynamic>? user;
 
+  /// Codice di recupero appena creato: la schermata principale lo mostra una volta sola.
+  String? pendingRecoveryCode;
+
   /// Messaggio da mostrare nella schermata di accesso (per esempio "accesso scaduto").
   String? notice;
 
@@ -75,6 +78,7 @@ class Session extends ChangeNotifier {
   Future<void> _store(Map<String, dynamic> r) async {
     api.token = r['token'] as String;
     user = Map<String, dynamic>.from(r['user'] as Map);
+    pendingRecoveryCode = r['recoveryCode'] as String?;
     notice = null;
     await _write(_tokenKey, api.token);
     await _write(_userKey, jsonEncode(user));
@@ -82,6 +86,9 @@ class Session extends ChangeNotifier {
   }
 
   Future<void> login(String email, String password) async => _store(await api.login(email, password));
+
+  Future<void> resetPassword(String email, String recoveryCode, String newPassword) async =>
+      _store(await api.resetPassword(email, recoveryCode, newPassword));
 
   Future<void> register(String email, String password, String name) async =>
       _store(await api.register(email, password, name));

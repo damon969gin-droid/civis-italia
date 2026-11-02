@@ -407,3 +407,63 @@ describe('controllo della risposta dell\'AI', () => {
     assert.throws(() => extractJson('niente'));
   });
 });
+
+describe('password dimenticata', () => {
+  async function registerWithCode(env, email = 'r@example.com') {
+    const r = await call(env, 'POST', '/v1/auth/register', { json: { email, password: 'password-lunga-1' } });
+    assert.equal(r.status, 201);
+    assert.match(r.body.recoveryCode, /^[A-HJ-NP-Z2-9]{5}(-[A-HJ-NP-Z2-9]{5}){3}$/);
+    return r.body.recoveryCode;
+  }
+
+  test('con il codice giusto si imposta una nuova password e il codice cambia', async () => {
+    const env = newEnv();
+    const code = await registerWithCode(env);
+    const reset = await call(env, 'POST', '/v1/auth/reset', {
+      json: { email: 'R@example.com', recoveryCode: code.toLowerCase().replaceAll('-', ' '), newPassword: 'nuova-password-2' },
+    });
+    assert.equal(reset.status, 200);
+    assert.ok(reset.body.token);
+    assert.notEqual(reset.body.recoveryCode, code);
+    assert.equal((await call(env, 'POST', '/v1/auth/login', { json: { email: 'r@example.com', password: 'password-lunga-1' } })).status, 401);
+    assert.equal((await call(env, 'POST', '/v1/auth/login', { json: { email: 'r@example.com', password: 'nuova-password-2' } })).status, 200);
+    // Il vecchio codice non vale più.
+    const again = await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: code, newPassword: 'altra-password-3' } });
+    assert.equal(again.status, 401);
+  });
+
+  test('codice sbagliato, email sconosciuta, password troppo corta', async () => {
+    const env = newEnv();
+    await registerWithCode(env);
+    const bad = await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA', newPassword: 'nuova-password-2' } });
+    assert.equal(bad.status, 401);
+    const unknown = await call(env, 'POST', '/v1/auth/reset', { json: { email: 'nessuno@example.com', recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA', newPassword: 'nuova-password-2' } });
+    assert.equal(unknown.status, 401);
+    assert.equal(unknown.body.error, bad.body.error);
+    const short = await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: 'x', newPassword: 'corta' } });
+    assert.equal(short.status, 400);
+  });
+
+  test('dopo 5 tentativi sbagliati si blocca, anche con il codice giusto', async () => {
+    const env = newEnv();
+    const code = await registerWithCode(env);
+    for (let i = 0; i < 5; i++) {
+      await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: 'AAAAA-AAAAA-AAAAA-AAAAA', newPassword: 'nuova-password-2' } });
+    }
+    const blocked = await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: code, newPassword: 'nuova-password-2' } });
+    assert.equal(blocked.status, 429);
+  });
+
+  test('il codice non è salvato in chiaro e se ne può chiedere uno nuovo da collegati', async () => {
+    const env = newEnv();
+    const code = await registerWithCode(env);
+    const row = env.DB.raw.prepare("SELECT recovery_hash FROM users WHERE email = 'r@example.com'").get();
+    assert.ok(row.recovery_hash && !row.recovery_hash.includes(code.replaceAll('-', '')));
+    const login = await call(env, 'POST', '/v1/auth/login', { json: { email: 'r@example.com', password: 'password-lunga-1' } });
+    const renewed = await call(env, 'POST', '/v1/me/recovery-code', { token: login.body.token });
+    assert.equal(renewed.status, 200);
+    assert.notEqual(renewed.body.recoveryCode, code);
+    assert.equal((await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: code, newPassword: 'nuova-password-2' } })).status, 401);
+    assert.equal((await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: renewed.body.recoveryCode, newPassword: 'nuova-password-2' } })).status, 200);
+  });
+});

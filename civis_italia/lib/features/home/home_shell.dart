@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_data.dart';
+import '../auth/recovery_dialog.dart';
 import '../chat/chat_page.dart';
 import '../deadlines/deadlines_tab.dart';
 import '../documents/documents_tab.dart';
@@ -20,7 +21,15 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) AppScope.of(context).data.refresh();
+      if (!mounted) return;
+      final scope = AppScope.of(context);
+      scope.data.refresh();
+      // Dopo la registrazione o il recupero: si mostra il nuovo codice, una volta sola.
+      final code = scope.session.pendingRecoveryCode;
+      if (code != null) {
+        scope.session.pendingRecoveryCode = null;
+        showRecoveryCodeDialog(context, code);
+      }
     });
   }
 

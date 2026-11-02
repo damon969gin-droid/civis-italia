@@ -66,6 +66,29 @@ function publicUser(u) {
   return { id: u.id, email: u.email, name: u.name };
 }
 
+// Codice di recupero: si mostra una sola volta e serve a reimpostare la password senza email.
+// 20 caratteri da un alfabeto senza simboli ambigui (circa 100 bit): per questo basta un hash veloce.
+const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function newRecoveryCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const chars = Array.from(bytes, (b) => RECOVERY_ALPHABET[b % RECOVERY_ALPHABET.length]);
+  return [0, 5, 10, 15].map((i) => chars.slice(i, i + 5).join('')).join('-');
+}
+
+async function hashRecovery(code) {
+  const clean = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`civis-recovery:${clean}`));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function sameString(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 async function register(request, env) {
   const b = await body(request);
   const email = String(b.email || '').trim().toLowerCase();
@@ -78,11 +101,52 @@ async function register(request, env) {
   const exists = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
   if (exists) throw new HttpError(409, 'Esiste già un account con questa email.');
   const user = { id: crypto.randomUUID(), email, name };
-  await env.DB.prepare('INSERT INTO users (id, email, name, pass_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(user.id, email, name, await hashPassword(password), nowIso())
+  const recoveryCode = newRecoveryCode();
+  await env.DB.prepare('INSERT INTO users (id, email, name, pass_hash, recovery_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(user.id, email, name, await hashPassword(password), await hashRecovery(recoveryCode), nowIso())
     .run();
   const token = await signToken({ sub: user.id }, env.JWT_SECRET);
-  return json({ token, user: publicUser(user) }, 201);
+  return json({ token, user: publicUser(user), recoveryCode }, 201);
+}
+
+/** Password dimenticata: email + codice di recupero + nuova password. Il codice si rigenera a ogni uso. */
+async function resetPassword(request, env) {
+  const b = await body(request);
+  const email = String(b.email || '').trim().toLowerCase();
+  const newPassword = String(b.newPassword || '');
+  if (newPassword.length < 8 || newPassword.length > 200) {
+    throw new HttpError(400, 'La nuova password deve avere almeno 8 caratteri.');
+  }
+  const key = `reset:${email}`;
+  const since = Date.now() - 15 * 60 * 1000;
+  const recent = await env.DB.prepare('SELECT COUNT(*) AS n FROM login_attempts WHERE email = ? AND ts > ?')
+    .bind(key, since)
+    .first();
+  if ((recent?.n || 0) >= 5) throw new HttpError(429, 'Troppi tentativi. Riprova tra 15 minuti.');
+  const user = await env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+  const given = await hashRecovery(b.recoveryCode);
+  if (!user || !user.recovery_hash || !sameString(given, user.recovery_hash)) {
+    await env.DB.prepare('INSERT INTO login_attempts (email, ts) VALUES (?, ?)').bind(key, Date.now()).run();
+    throw new HttpError(401, 'Email o codice di recupero non corretti.');
+  }
+  const recoveryCode = newRecoveryCode();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE users SET pass_hash = ?, recovery_hash = ? WHERE id = ?').bind(
+      await hashPassword(newPassword),
+      await hashRecovery(recoveryCode),
+      user.id,
+    ),
+    env.DB.prepare('DELETE FROM login_attempts WHERE email IN (?, ?)').bind(key, email),
+  ]);
+  const token = await signToken({ sub: user.id }, env.JWT_SECRET);
+  return json({ token, user: publicUser(user), recoveryCode });
+}
+
+/** Nuovo codice di recupero per chi è già collegato (anche per account creati prima di questa funzione). */
+async function renewRecovery(env, user) {
+  const recoveryCode = newRecoveryCode();
+  await env.DB.prepare('UPDATE users SET recovery_hash = ? WHERE id = ?').bind(await hashRecovery(recoveryCode), user.id).run();
+  return json({ recoveryCode });
 }
 
 async function login(request, env) {
@@ -403,10 +467,12 @@ async function route(request, env) {
 
   if (method === 'POST' && path === '/v1/auth/register') return register(request, env);
   if (method === 'POST' && path === '/v1/auth/login') return login(request, env);
+  if (method === 'POST' && path === '/v1/auth/reset') return resetPassword(request, env);
 
   const user = await authenticate(request, env);
   let m;
 
+  if (method === 'POST' && path === '/v1/me/recovery-code') return renewRecovery(env, user);
   if (path === '/v1/me') {
     if (method === 'GET') return json(publicUser(user));
     if (method === 'PATCH') {

@@ -84,6 +84,14 @@ class ApiClient {
   Future<Map<String, dynamic>> login(String email, String password) async =>
       _map(await _send('POST', '/v1/auth/login', json: {'email': email, 'password': password}));
 
+  Future<Map<String, dynamic>> resetPassword(String email, String recoveryCode, String newPassword) async => _map(
+      await _send('POST', '/v1/auth/reset',
+          json: {'email': email, 'recoveryCode': recoveryCode, 'newPassword': newPassword}));
+
+  /// Genera un nuovo codice di recupero (il vecchio smette di valere).
+  Future<String> renewRecoveryCode() async =>
+      _map(await _send('POST', '/v1/me/recovery-code'))['recoveryCode'] as String;
+
   Future<Map<String, dynamic>> me() async => _map(await _send('GET', '/v1/me'));
 
   Future<Map<String, dynamic>> updateName(String name) async =>

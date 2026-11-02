@@ -4,8 +4,10 @@ CREATE TABLE IF NOT EXISTS users (
   email       TEXT NOT NULL UNIQUE,
   name        TEXT NOT NULL DEFAULT '',
   pass_hash   TEXT NOT NULL,
+  recovery_hash TEXT,
   created_at  TEXT NOT NULL
 );
+-- Per un database già creato prima del codice di recupero: ALTER TABLE users ADD COLUMN recovery_hash TEXT;
 
 CREATE TABLE IF NOT EXISTS documents (
   id           TEXT PRIMARY KEY,
