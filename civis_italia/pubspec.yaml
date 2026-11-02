@@ -24,6 +24,7 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   # Apre i siti ufficiali indicati nell'analisi
   url_launcher: ^6.3.0
+  image_picker: ^1.2.4
 
 dev_dependencies:
   flutter_test:

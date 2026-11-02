@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -14,8 +13,10 @@ class ShrinkException implements Exception {
 
 /// Legge una foto e la riduce (JPEG) finché sta sotto il limite del server.
 /// Il testo resta leggibile: lato lungo fino a 2000 px, qualità scalata da 82 a 55.
-Future<Uint8List> shrinkForUpload(File file) async {
-  final bytes = await file.readAsBytes();
+Future<Uint8List> shrinkForUpload(File file) async => shrinkBytes(await file.readAsBytes());
+
+/// Come sopra, ma parte dai byte della foto (serve nel browser, dove non ci sono file).
+Future<Uint8List> shrinkBytes(Uint8List bytes) async {
   final out = await compute(_shrink, bytes);
   if (out == null) throw ShrinkException('Non riesco a leggere questa foto. Rifai la scansione.');
   if (out.length > maxPageBytes) {

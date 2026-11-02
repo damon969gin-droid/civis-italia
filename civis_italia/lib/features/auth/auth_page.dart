@@ -135,10 +135,10 @@ class _AuthPageState extends State<AuthPage> {
                     ),
                     if (_register) ...[
                       const SizedBox(height: 16),
-                      NoticeBox(
+                      const NoticeBox(
                         icon: Icons.lock_outline,
                         title: 'Come vengono trattati i tuoi documenti',
-                        lines: const [
+                        lines: [
                           'Le foto restano nel tuo archivio privato e le vedi solo tu.',
                           'Per spiegartele, un servizio di intelligenza artificiale le legge. Non vengono usate per addestrarlo.',
                           'Puoi esportare o eliminare tutto, in qualsiasi momento, dal Profilo.',
