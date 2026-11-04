@@ -12,6 +12,7 @@ class AppData extends ChangeNotifier {
 
   List<DocItem> docs = [];
   List<DeadlineItem> deadlines = [];
+  List<CatalogItem> catalog = [];
   bool loading = false;
   bool loadedOnce = false;
   String? error;
@@ -38,6 +39,14 @@ class AppData extends ChangeNotifier {
       docs = results[0].map(DocItem.fromJson).toList();
       deadlines = results[1].map(DeadlineItem.fromJson).toList();
       loadedOnce = true;
+      try {
+        final c = await api.catalog();
+        catalog = (c['scadenze'] as List)
+            .map((e) => CatalogItem.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+      } catch (_) {
+        // Il catalogo è un di più: se non arriva, il calendario personale funziona lo stesso.
+      }
     } on ApiException catch (e) {
       error = e.message;
     } catch (_) {

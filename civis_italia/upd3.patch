@@ -1,0 +1,556 @@
+
+
+--- a/lib/core/api.dart	2026-11-02 12:26:57.953596239 +0000
++++ b/lib/core/api.dart	2026-11-02 12:26:57.957609505 +0000
+@@ -92,6 +92,9 @@
+   Future<String> renewRecoveryCode() async =>
+       _map(await _send('POST', '/v1/me/recovery-code'))['recoveryCode'] as String;
+ 
++  /// Scadenze generali (IMU, acconti…) con fonte e data di verifica.
++  Future<Map<String, dynamic>> catalog() async => _map(await _send('GET', '/v1/catalog'));
++
+   Future<Map<String, dynamic>> me() async => _map(await _send('GET', '/v1/me'));
+ 
+   Future<Map<String, dynamic>> updateName(String name) async =>
+
+--- a/lib/core/app_data.dart	2026-11-02 12:26:57.953742548 +0000
++++ b/lib/core/app_data.dart	2026-11-02 12:26:57.957750497 +0000
+@@ -12,6 +12,7 @@
+ 
+   List<DocItem> docs = [];
+   List<DeadlineItem> deadlines = [];
++  List<CatalogItem> catalog = [];
+   bool loading = false;
+   bool loadedOnce = false;
+   String? error;
+@@ -38,6 +39,14 @@
+       docs = results[0].map(DocItem.fromJson).toList();
+       deadlines = results[1].map(DeadlineItem.fromJson).toList();
+       loadedOnce = true;
++      try {
++        final c = await api.catalog();
++        catalog = (c['scadenze'] as List)
++            .map((e) => CatalogItem.fromJson(Map<String, dynamic>.from(e as Map)))
++            .toList();
++      } catch (_) {
++        // Il catalogo è un di più: se non arriva, il calendario personale funziona lo stesso.
++      }
+     } on ApiException catch (e) {
+       error = e.message;
+     } catch (_) {
+
+--- a/lib/core/models.dart	2026-11-02 12:26:57.953568001 +0000
++++ b/lib/core/models.dart	2026-11-02 12:26:57.957578883 +0000
+@@ -60,3 +60,48 @@
+         docId: j['docId'] as String?,
+       );
+ }
++
++/// Scadenza generale (uguale per tutti) dal catalogo del server, con fonte e data di verifica.
++class CatalogItem {
++  CatalogItem({
++    required this.id,
++    required this.title,
++    required this.date,
++    required this.moved,
++    required this.who,
++    required this.how,
++    required this.sourceName,
++    required this.sourceUrl,
++    required this.rule,
++    required this.verifiedOn,
++  });
++
++  final String id;
++  final String title;
++  final DateTime date;
++
++  /// La data nominale cadeva in un giorno non lavorativo ed è stata spostata.
++  final bool moved;
++  final String who;
++  final String how;
++  final String sourceName;
++  final String sourceUrl;
++  final String rule;
++  final DateTime verifiedOn;
++
++  factory CatalogItem.fromJson(Map<String, dynamic> j) {
++    final fonte = Map<String, dynamic>.from(j['fonte'] as Map);
++    return CatalogItem(
++      id: j['id'] as String,
++      title: j['titolo'] as String,
++      date: parseDay(j['data'] as String),
++      moved: (j['spostata'] as bool?) ?? false,
++      who: (j['chi'] as String?) ?? '',
++      how: (j['come'] as String?) ?? '',
++      sourceName: (fonte['nome'] as String?) ?? '',
++      sourceUrl: (fonte['url'] as String?) ?? '',
++      rule: (j['norma'] as String?) ?? '',
++      verifiedOn: parseDay(j['verificataIl'] as String),
++    );
++  }
++}
+
+--- a/lib/features/deadlines/deadlines_tab.dart	2026-11-02 12:26:57.953166641 +0000
++++ b/lib/features/deadlines/deadlines_tab.dart	2026-11-02 12:26:57.957199747 +0000
+@@ -1,4 +1,5 @@
+ import 'package:flutter/material.dart';
++import 'package:url_launcher/url_launcher.dart';
+ 
+ import '../../core/api.dart';
+ import '../../core/app_data.dart';
+@@ -98,18 +99,23 @@
+                     month: _month,
+                     selected: _selected,
+                     deadlines: data.deadlines,
++                    catalog: data.catalog,
+                     onSelect: _goTo,
+                   ),
+-                  const SizedBox(height: 12),
++                  const SizedBox(height: 8),
++                  const _Legend(),
++                  const SizedBox(height: 8),
+                   SectionTitle(itDate(_selected)),
+-                  ..._dayList(context, data.deadlines),
++                  ..._dayList(context, data),
+                   if (open.isNotEmpty) ...[
+                     const SizedBox(height: 8),
+                     const SectionTitle('Prossime scadenze'),
+                     for (final d in open.take(5)) DeadlineTile(deadline: d),
+                   ],
++                  ..._upcomingGeneral(data),
+                 ] else ...[
+                   for (final d in open) DeadlineTile(deadline: d),
++                  ..._upcomingGeneral(data),
+                   if (done.isNotEmpty) ...[
+                     const SectionTitle('Fatte'),
+                     for (final d in done) DeadlineTile(deadline: d),
+@@ -123,10 +129,26 @@
+     );
+   }
+ 
+-  List<Widget> _dayList(BuildContext context, List<DeadlineItem> all) {
++  static bool _isAdded(AppData data, CatalogItem c) =>
++      data.deadlines.any((d) => d.title == c.title && isoDay(d.date) == isoDay(c.date));
++
++  /// Prossime scadenze generali che l'utente non ha ancora aggiunto ai suoi promemoria.
++  List<Widget> _upcomingGeneral(AppData data) {
++    final upcoming = data.catalog.where((c) => daysUntil(c.date) >= 0 && !_isAdded(data, c)).toList()
++      ..sort((a, b) => a.date.compareTo(b.date));
++    if (upcoming.isEmpty) return const [];
++    return [
++      const SizedBox(height: 8),
++      const SectionTitle('Scadenze generali in arrivo'),
++      for (final c in upcoming.take(3)) _CatalogTile(item: c, added: false),
++    ];
++  }
++
++  List<Widget> _dayList(BuildContext context, AppData data) {
+     final day = isoDay(_selected);
+-    final items = all.where((d) => isoDay(d.date) == day).toList();
+-    if (items.isEmpty) {
++    final items = data.deadlines.where((d) => isoDay(d.date) == day).toList();
++    final general = data.catalog.where((c) => isoDay(c.date) == day).toList();
++    if (items.isEmpty && general.isEmpty) {
+       return [
+         Padding(
+           padding: const EdgeInsets.symmetric(vertical: 8),
+@@ -145,7 +167,130 @@
+         ),
+       ];
+     }
+-    return [for (final d in items) DeadlineTile(deadline: d)];
++    return [
++      for (final d in items) DeadlineTile(deadline: d),
++      for (final c in general) _CatalogTile(item: c, added: _isAdded(data, c)),
++    ];
++  }
++}
++
++class _Legend extends StatelessWidget {
++  const _Legend();
++
++  @override
++  Widget build(BuildContext context) {
++    final s = Theme.of(context).colorScheme;
++    final style = Theme.of(context).textTheme.bodySmall?.copyWith(color: s.onSurfaceVariant);
++    return Wrap(
++      spacing: 16,
++      runSpacing: 4,
++      children: [
++        Row(mainAxisSize: MainAxisSize.min, children: [
++          Container(width: 8, height: 8, decoration: BoxDecoration(color: s.primary, shape: BoxShape.circle)),
++          const SizedBox(width: 6),
++          Text('Le tue scadenze', style: style),
++        ]),
++        Row(mainAxisSize: MainAxisSize.min, children: [
++          Container(
++            width: 8,
++            height: 8,
++            decoration: BoxDecoration(border: Border.all(color: s.primary, width: 1.5), shape: BoxShape.circle),
++          ),
++          const SizedBox(width: 6),
++          Text('Scadenze generali', style: style),
++        ]),
++      ],
++    );
++  }
++}
++
++/// Scadenza generale dal catalogo: mostra regola, fonte e data di verifica, e si può aggiungere ai propri promemoria.
++class _CatalogTile extends StatefulWidget {
++  const _CatalogTile({required this.item, required this.added});
++
++  final CatalogItem item;
++  final bool added;
++
++  @override
++  State<_CatalogTile> createState() => _CatalogTileState();
++}
++
++class _CatalogTileState extends State<_CatalogTile> {
++  bool _busy = false;
++
++  Future<void> _add() async {
++    final scope = AppScope.of(context);
++    final c = widget.item;
++    setState(() => _busy = true);
++    try {
++      await scope.api.createDeadline(
++        c.title,
++        isoDay(c.date),
++        note: 'Scadenza generale. Controlla la data sul sito ufficiale: proroghe e decreti possono cambiarla.',
++      );
++      await scope.data.refresh();
++      if (mounted) showSnack(context, 'Aggiunta ai tuoi promemoria.');
++    } on ApiException catch (e) {
++      if (mounted) showSnack(context, e.message);
++    } finally {
++      if (mounted) setState(() => _busy = false);
++    }
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final t = Theme.of(context);
++    final c = widget.item;
++    final muted = t.textTheme.bodyMedium?.copyWith(color: t.colorScheme.onSurfaceVariant);
++    return Card(
++      margin: const EdgeInsets.symmetric(vertical: 4),
++      child: ExpansionTile(
++        leading: Icon(Icons.account_balance_outlined, color: t.colorScheme.primary),
++        title: Text(c.title),
++        subtitle: Text('Scadenza generale · ${itDate(c.date)} · ${relativeDays(c.date)}'),
++        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
++        expandedCrossAxisAlignment: CrossAxisAlignment.start,
++        children: [
++          Text('Chi deve pagare', style: t.textTheme.labelLarge),
++          Text(c.who, style: muted),
++          const SizedBox(height: 8),
++          Text('Come', style: t.textTheme.labelLarge),
++          Text(c.how, style: muted),
++          if (c.moved) ...[
++            const SizedBox(height: 8),
++            Text(
++              'La data prevista cade in un giorno non lavorativo, quindi si sposta al primo giorno lavorativo successivo.',
++              style: muted,
++            ),
++          ],
++          const SizedBox(height: 8),
++          Text(
++            'Fonte: ${c.sourceName} · ${c.rule}. Verificata il ${itDate(c.verifiedOn)}. '
++            'Controlla sempre la data sul sito ufficiale: proroghe e decreti possono cambiarla.',
++            style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant),
++          ),
++          const SizedBox(height: 8),
++          Wrap(
++            spacing: 8,
++            children: [
++              OutlinedButton.icon(
++                onPressed: () => launchUrl(Uri.parse(c.sourceUrl), mode: LaunchMode.externalApplication),
++                icon: const Icon(Icons.open_in_new, size: 18),
++                label: const Text('Sito ufficiale'),
++              ),
++              if (widget.added)
++                const Chip(avatar: Icon(Icons.check, size: 18), label: Text('Già nei tuoi promemoria'))
++              else
++                FilledButton.tonalIcon(
++                  onPressed: _busy ? null : _add,
++                  icon: const Icon(Icons.add_alert_outlined, size: 18),
++                  label: const Text('Aggiungi ai miei promemoria'),
++                ),
++            ],
++          ),
++        ],
++      ),
++    );
+   }
+ }
+ 
+@@ -177,11 +322,18 @@
+ }
+ 
+ class _MonthGrid extends StatelessWidget {
+-  const _MonthGrid({required this.month, required this.selected, required this.deadlines, required this.onSelect});
++  const _MonthGrid({
++    required this.month,
++    required this.selected,
++    required this.deadlines,
++    required this.catalog,
++    required this.onSelect,
++  });
+ 
+   final DateTime month;
+   final DateTime selected;
+   final List<DeadlineItem> deadlines;
++  final List<CatalogItem> catalog;
+   final ValueChanged<DateTime> onSelect;
+ 
+   static const _weekdays = ['L', 'M', 'M', 'G', 'V', 'S', 'D'];
+@@ -194,6 +346,7 @@
+     for (final d in deadlines) {
+       (byDay[isoDay(d.date)] ??= []).add(d);
+     }
++    final generalDays = {for (final c in catalog) isoDay(c.date)};
+     final first = DateTime(month.year, month.month, 1);
+     final lead = first.weekday - 1; // lunedì = 0
+     final days = DateTime(month.year, month.month + 1, 0).day;
+@@ -236,6 +389,7 @@
+                 isSelected: DateTime(month.year, month.month, n) == selected,
+                 dot: dotColor(byDay[isoDay(DateTime(month.year, month.month, n))], DateTime(month.year, month.month, n)),
+                 count: byDay[isoDay(DateTime(month.year, month.month, n))]?.length ?? 0,
++                general: generalDays.contains(isoDay(DateTime(month.year, month.month, n))),
+                 onTap: onSelect,
+               ),
+           ],
+@@ -252,6 +406,7 @@
+     required this.isSelected,
+     required this.dot,
+     required this.count,
++    required this.general,
+     required this.onTap,
+   });
+ 
+@@ -260,6 +415,7 @@
+   final bool isSelected;
+   final Color? dot;
+   final int count;
++  final bool general;
+   final ValueChanged<DateTime> onTap;
+ 
+   @override
+@@ -268,7 +424,7 @@
+     return Semantics(
+       button: true,
+       selected: isSelected,
+-      label: '${itDate(day)}${count > 0 ? ', $count ${count == 1 ? 'scadenza' : 'scadenze'}' : ''}',
++      label: '${itDate(day)}${count > 0 ? ', $count ${count == 1 ? 'scadenza' : 'scadenze'}' : ''}${general ? ', scadenza generale' : ''}',
+       child: InkWell(
+         borderRadius: BorderRadius.circular(12),
+         onTap: () => onTap(day),
+@@ -291,14 +447,28 @@
+               ),
+               const SizedBox(height: 3),
+               SizedBox(
+-                height: 7,
+-                child: dot == null
+-                    ? null
+-                    : Container(
++                height: 8,
++                child: Row(
++                  mainAxisSize: MainAxisSize.min,
++                  children: [
++                    if (dot != null)
++                      Container(
+                         width: 7,
+                         height: 7,
+                         decoration: BoxDecoration(color: isSelected ? s.onPrimary : dot, shape: BoxShape.circle),
+                       ),
++                    if (dot != null && general) const SizedBox(width: 3),
++                    if (general)
++                      Container(
++                        width: 7,
++                        height: 7,
++                        decoration: BoxDecoration(
++                          border: Border.all(color: isSelected ? s.onPrimary : s.primary, width: 1.5),
++                          shape: BoxShape.circle,
++                        ),
++                      ),
++                  ],
++                ),
+               ),
+             ],
+           ),
+
+--- a/worker/src/catalog.js	1970-01-01 00:00:00.000000000 +0000
++++ b/worker/src/catalog.js	2026-11-02 12:26:57.970595792 +0000
+@@ -0,0 +1,99 @@
++// Catalogo delle scadenze generali (uguali per tutti), con la fonte e la data dell'ultimo controllo.
++// REGOLA: qui si inserisce una scadenza solo se è fissata da una norma e confermata da più fonti.
++// Le scadenze che dipendono dal comune, dalla regione o dalla data di notifica NON stanno qui:
++// quelle le legge l'AI dai documenti dell'utente.
++
++const FONTE_ENTRATE = { nome: 'Agenzia delle Entrate', url: 'https://www.agenziaentrate.gov.it' };
++
++/** Ultima verifica del catalogo: da aggiornare ogni volta che si ricontrolla. */
++export const CATALOG_VERIFIED_ON = '2026-11-02';
++
++const RULES = [
++  {
++    id: 'imu-acconto',
++    titolo: 'IMU: acconto',
++    mese: 6,
++    giorno: 16,
++    chi: 'Chi possiede immobili diversi dall’abitazione principale (le abitazioni principali non di lusso sono escluse).',
++    come: 'Si paga con F24 o con il modulo di pagamento PagoPA. L’importo dipende dall’aliquota del tuo comune.',
++    fonte: FONTE_ENTRATE,
++    norma: 'Legge 160/2019, art. 1, comma 762',
++  },
++  {
++    id: 'imu-saldo',
++    titolo: 'IMU: saldo',
++    mese: 12,
++    giorno: 16,
++    chi: 'Chi possiede immobili diversi dall’abitazione principale (le abitazioni principali non di lusso sono escluse).',
++    come: 'Si paga con F24 o con il modulo di pagamento PagoPA. L’importo dipende dall’aliquota del tuo comune.',
++    fonte: FONTE_ENTRATE,
++    norma: 'Legge 160/2019, art. 1, comma 762',
++  },
++  {
++    id: 'acconto-imposte-novembre',
++    titolo: 'Seconda rata (o unica) dell’acconto delle imposte sui redditi',
++    mese: 11,
++    giorno: 30,
++    chi: 'Chi presenta il modello Redditi o ha cedolare secca, IVIE o IVAFE. Dipendenti e pensionati con il 730: di solito lo trattiene il datore di lavoro o l’ente pensionistico.',
++    come: 'Si paga con F24, in un’unica soluzione. Sotto 257,52 euro l’acconto si paga tutto a novembre.',
++    fonte: FONTE_ENTRATE,
++    norma: 'DPR 435/2001 e norme successive',
++  },
++];
++
++// ---------- giorni lavorativi ----------
++
++function easterMonday(year) {
++  // Algoritmo di Gauss per la Pasqua (calendario gregoriano).
++  const a = year % 19;
++  const b = Math.floor(year / 100);
++  const c = year % 100;
++  const d = Math.floor(b / 4);
++  const e = b % 4;
++  const f = Math.floor((b + 8) / 25);
++  const g = Math.floor((b - f + 1) / 3);
++  const h = (19 * a + b - d - g + 15) % 30;
++  const i = Math.floor(c / 4);
++  const k = c % 4;
++  const l = (32 + 2 * e + 2 * i - h - k) % 7;
++  const m = Math.floor((a + 11 * h + 22 * l) / 451);
++  const month = Math.floor((h + l - 7 * m + 114) / 31); // 3 = marzo, 4 = aprile
++  const day = ((h + l - 7 * m + 114) % 31) + 1;
++  return new Date(Date.UTC(year, month - 1, day + 1));
++}
++
++const FIXED_HOLIDAYS = ['01-01', '01-06', '04-25', '05-01', '06-02', '08-15', '11-01', '12-08', '12-25', '12-26'];
++
++function isHoliday(d) {
++  const dow = d.getUTCDay();
++  if (dow === 0 || dow === 6) return true;
++  const key = d.toISOString().slice(5, 10);
++  if (FIXED_HOLIDAYS.includes(key)) return true;
++  return d.toISOString().slice(0, 10) === easterMonday(d.getUTCFullYear()).toISOString().slice(0, 10);
++}
++
++/** Se la scadenza cade di sabato, domenica o festivo, passa al primo giorno lavorativo dopo. */
++export function nextBusinessDay(year, month, day) {
++  const d = new Date(Date.UTC(year, month - 1, day));
++  while (isHoliday(d)) d.setUTCDate(d.getUTCDate() + 1);
++  return d.toISOString().slice(0, 10);
++}
++
++/** Scadenze generali per un anno. */
++export function catalogForYear(year) {
++  return RULES.map((r) => {
++    const nominale = `${year}-${String(r.mese).padStart(2, '0')}-${String(r.giorno).padStart(2, '0')}`;
++    const data = nextBusinessDay(year, r.mese, r.giorno);
++    return {
++      id: `${r.id}-${year}`,
++      titolo: r.titolo,
++      data,
++      spostata: data !== nominale,
++      chi: r.chi,
++      come: r.come,
++      fonte: r.fonte,
++      norma: r.norma,
++      verificataIl: CATALOG_VERIFIED_ON,
++    };
++  });
++}
+
+--- a/worker/src/index.js	2026-11-02 12:26:57.960502358 +0000
++++ b/worker/src/index.js	2026-11-02 12:26:57.963280270 +0000
+@@ -1,6 +1,7 @@
+ // API di Civis su Cloudflare Workers: login, documenti, scadenze, analisi AI.
+ // Database e foto delle pagine: D1 (binding DB). Segreti: JWT_SECRET, ANTHROPIC_API_KEY.
+ 
++import { catalogForYear, CATALOG_VERIFIED_ON } from './catalog.js';
+ import { hashPassword, signToken, verifyPassword, verifyToken } from './auth.js';
+ import {
+   AiError,
+@@ -472,6 +473,14 @@
+   const user = await authenticate(request, env);
+   let m;
+ 
++  if (method === 'GET' && path === '/v1/catalog') {
++    const year = Number(today().slice(0, 4));
++    return json({
++      verificataIl: CATALOG_VERIFIED_ON,
++      avviso: 'Controlla sempre la data sul sito ufficiale: proroghe e decreti possono cambiarla.',
++      scadenze: [...catalogForYear(year), ...catalogForYear(year + 1)],
++    });
++  }
+   if (method === 'POST' && path === '/v1/me/recovery-code') return renewRecovery(env, user);
+   if (path === '/v1/me') {
+     if (method === 'GET') return json(publicUser(user));
+
+--- a/worker/test/api.test.js	2026-11-02 12:26:57.965800165 +0000
++++ b/worker/test/api.test.js	2026-11-02 12:26:57.968485608 +0000
+@@ -3,6 +3,7 @@
+ import { after, before, describe, test } from 'node:test';
+ import worker from '../src/index.js';
+ import { normalizeAnalysis, extractJson, isRealDate } from '../src/ai.js';
++import { nextBusinessDay, catalogForYear } from '../src/catalog.js';
+ import { makeD1 } from './shims.js';
+ 
+ // Falso servizio AI: registra le richieste e risponde con quello che gli diciamo.
+@@ -467,3 +468,32 @@
+     assert.equal((await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: renewed.body.recoveryCode, newPassword: 'nuova-password-2' } })).status, 200);
+   });
+ });
++
++describe('catalogo scadenze generali', () => {
++  test('sabato, domenica e festivi passano al giorno lavorativo dopo', () => {
++    assert.equal(nextBusinessDay(2026, 10, 31), '2026-11-02'); // sabato + 1 novembre festivo
++    assert.equal(nextBusinessDay(2026, 12, 16), '2026-12-16'); // mercoledì
++    assert.equal(nextBusinessDay(2026, 6, 16), '2026-06-16'); // martedì
++    assert.equal(nextBusinessDay(2026, 11, 30), '2026-11-30'); // lunedì
++    assert.equal(nextBusinessDay(2027, 6, 16), '2027-06-16'); // mercoledì
++    assert.equal(nextBusinessDay(2026, 4, 6), '2026-04-07'); // lunedì di Pasqua 2026
++    assert.equal(nextBusinessDay(2027, 12, 25), '2027-12-27'); // sabato + 26 dicembre domenica
++  });
++
++  test('ogni scadenza ha fonte, regola e data di verifica', () => {
++    for (const c of catalogForYear(2026)) {
++      assert.match(c.data, /^\d{4}-\d{2}-\d{2}$/);
++      assert.ok(c.fonte.url.startsWith('https://') && c.verificataIl && c.chi && c.norma);
++    }
++    assert.deepEqual(catalogForYear(2026).map((c) => c.data), ['2026-06-16', '2026-12-16', '2026-11-30']);
++  });
++
++  test('l\'API serve il catalogo solo a chi è collegato', async () => {
++    const env = newEnv();
++    assert.equal((await call(env, 'GET', '/v1/catalog')).status, 401);
++    const token = await signup(env);
++    const r = await call(env, 'GET', '/v1/catalog', { token });
++    assert.equal(r.status, 200);
++    assert.ok(r.body.scadenze.length >= 6 && r.body.verificataIl && r.body.avviso);
++  });
++});

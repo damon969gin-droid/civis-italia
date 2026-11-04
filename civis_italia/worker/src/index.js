@@ -1,6 +1,7 @@
 // API di Civis su Cloudflare Workers: login, documenti, scadenze, analisi AI.
 // Database e foto delle pagine: D1 (binding DB). Segreti: JWT_SECRET, ANTHROPIC_API_KEY.
 
+import { catalogForYear, CATALOG_VERIFIED_ON } from './catalog.js';
 import { hashPassword, signToken, verifyPassword, verifyToken } from './auth.js';
 import {
   AiError,
@@ -472,6 +473,14 @@ async function route(request, env) {
   const user = await authenticate(request, env);
   let m;
 
+  if (method === 'GET' && path === '/v1/catalog') {
+    const year = Number(today().slice(0, 4));
+    return json({
+      verificataIl: CATALOG_VERIFIED_ON,
+      avviso: 'Controlla sempre la data sul sito ufficiale: proroghe e decreti possono cambiarla.',
+      scadenze: [...catalogForYear(year), ...catalogForYear(year + 1)],
+    });
+  }
   if (method === 'POST' && path === '/v1/me/recovery-code') return renewRecovery(env, user);
   if (path === '/v1/me') {
     if (method === 'GET') return json(publicUser(user));

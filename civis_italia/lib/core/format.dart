@@ -61,3 +61,6 @@ String euro(num value) {
 }
 
 String pagesLabel(int n) => '$n ${n == 1 ? 'pagina' : 'pagine'}';
+
+/// Esempio: Ottobre 2026
+String itMonthYear(DateTime d) => '${_months[d.month - 1][0].toUpperCase()}${_months[d.month - 1].substring(1)} ${d.year}';

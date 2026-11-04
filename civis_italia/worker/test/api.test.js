@@ -3,6 +3,7 @@ import http from 'node:http';
 import { after, before, describe, test } from 'node:test';
 import worker from '../src/index.js';
 import { normalizeAnalysis, extractJson, isRealDate } from '../src/ai.js';
+import { nextBusinessDay, catalogForYear } from '../src/catalog.js';
 import { makeD1 } from './shims.js';
 
 // Falso servizio AI: registra le richieste e risponde con quello che gli diciamo.
@@ -465,5 +466,34 @@ describe('password dimenticata', () => {
     assert.notEqual(renewed.body.recoveryCode, code);
     assert.equal((await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: code, newPassword: 'nuova-password-2' } })).status, 401);
     assert.equal((await call(env, 'POST', '/v1/auth/reset', { json: { email: 'r@example.com', recoveryCode: renewed.body.recoveryCode, newPassword: 'nuova-password-2' } })).status, 200);
+  });
+});
+
+describe('catalogo scadenze generali', () => {
+  test('sabato, domenica e festivi passano al giorno lavorativo dopo', () => {
+    assert.equal(nextBusinessDay(2026, 10, 31), '2026-11-02'); // sabato + 1 novembre festivo
+    assert.equal(nextBusinessDay(2026, 12, 16), '2026-12-16'); // mercoledì
+    assert.equal(nextBusinessDay(2026, 6, 16), '2026-06-16'); // martedì
+    assert.equal(nextBusinessDay(2026, 11, 30), '2026-11-30'); // lunedì
+    assert.equal(nextBusinessDay(2027, 6, 16), '2027-06-16'); // mercoledì
+    assert.equal(nextBusinessDay(2026, 4, 6), '2026-04-07'); // lunedì di Pasqua 2026
+    assert.equal(nextBusinessDay(2027, 12, 25), '2027-12-27'); // sabato + 26 dicembre domenica
+  });
+
+  test('ogni scadenza ha fonte, regola e data di verifica', () => {
+    for (const c of catalogForYear(2026)) {
+      assert.match(c.data, /^\d{4}-\d{2}-\d{2}$/);
+      assert.ok(c.fonte.url.startsWith('https://') && c.verificataIl && c.chi && c.norma);
+    }
+    assert.deepEqual(catalogForYear(2026).map((c) => c.data), ['2026-06-16', '2026-12-16', '2026-11-30']);
+  });
+
+  test('l\'API serve il catalogo solo a chi è collegato', async () => {
+    const env = newEnv();
+    assert.equal((await call(env, 'GET', '/v1/catalog')).status, 401);
+    const token = await signup(env);
+    const r = await call(env, 'GET', '/v1/catalog', { token });
+    assert.equal(r.status, 200);
+    assert.ok(r.body.scadenze.length >= 6 && r.body.verificataIl && r.body.avviso);
   });
 });

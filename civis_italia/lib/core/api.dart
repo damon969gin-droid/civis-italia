@@ -92,6 +92,9 @@ class ApiClient {
   Future<String> renewRecoveryCode() async =>
       _map(await _send('POST', '/v1/me/recovery-code'))['recoveryCode'] as String;
 
+  /// Scadenze generali (IMU, acconti…) con fonte e data di verifica.
+  Future<Map<String, dynamic>> catalog() async => _map(await _send('GET', '/v1/catalog'));
+
   Future<Map<String, dynamic>> me() async => _map(await _send('GET', '/v1/me'));
 
   Future<Map<String, dynamic>> updateName(String name) async =>

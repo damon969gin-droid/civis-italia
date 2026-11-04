@@ -60,3 +60,48 @@ class DeadlineItem {
         docId: j['docId'] as String?,
       );
 }
+
+/// Scadenza generale (uguale per tutti) dal catalogo del server, con fonte e data di verifica.
+class CatalogItem {
+  CatalogItem({
+    required this.id,
+    required this.title,
+    required this.date,
+    required this.moved,
+    required this.who,
+    required this.how,
+    required this.sourceName,
+    required this.sourceUrl,
+    required this.rule,
+    required this.verifiedOn,
+  });
+
+  final String id;
+  final String title;
+  final DateTime date;
+
+  /// La data nominale cadeva in un giorno non lavorativo ed è stata spostata.
+  final bool moved;
+  final String who;
+  final String how;
+  final String sourceName;
+  final String sourceUrl;
+  final String rule;
+  final DateTime verifiedOn;
+
+  factory CatalogItem.fromJson(Map<String, dynamic> j) {
+    final fonte = Map<String, dynamic>.from(j['fonte'] as Map);
+    return CatalogItem(
+      id: j['id'] as String,
+      title: j['titolo'] as String,
+      date: parseDay(j['data'] as String),
+      moved: (j['spostata'] as bool?) ?? false,
+      who: (j['chi'] as String?) ?? '',
+      how: (j['come'] as String?) ?? '',
+      sourceName: (fonte['nome'] as String?) ?? '',
+      sourceUrl: (fonte['url'] as String?) ?? '',
+      rule: (j['norma'] as String?) ?? '',
+      verifiedOn: parseDay(j['verificataIl'] as String),
+    );
+  }
+}
